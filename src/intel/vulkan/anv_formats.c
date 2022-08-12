@@ -1100,6 +1100,65 @@ anv_formats_are_compatible(
           isl_formats_have_same_bits_per_channel(img_isl_fmt, img_view_isl_fmt);
 }
 
+/* Returns a set of feature flags supported by any of the VkFormat listed in
+ * format_list_info or any VkFormat compatible with format.
+ */
+static VkFormatFeatureFlags2
+anv_formats_gather_format_features(
+   const struct intel_device_info *devinfo,
+   const struct anv_format *format,
+   VkImageTiling tiling,
+   const struct isl_drm_modifier_info *isl_mod_info,
+   const VkImageFormatListCreateInfo *format_list_info)
+{
+   VkFormatFeatureFlags2KHR all_formats_feature_flags = 0;
+
+   /* We need to check that each of the usage bits are allowed for at least
+    * one of the potential formats.
+    */
+   if (!format_list_info || format_list_info->viewFormatCount == 0) {
+      /* If we specify no list of possible formats, we need to assume that
+       * every compatible format is possible and consider the features
+       * supported by each of them.
+       */
+      for (uint32_t fmt_arr_ind = 0;
+           fmt_arr_ind < ARRAY_SIZE(anv_formats);
+           ++fmt_arr_ind) {
+         for (uint32_t fmt_ind = 0;
+              fmt_ind < anv_formats[fmt_arr_ind].n_formats;
+              ++fmt_ind) {
+            const struct anv_format *possible_anv_format =
+               &(anv_formats[fmt_arr_ind].formats[fmt_ind]);
+
+            if (anv_formats_are_compatible(format, possible_anv_format,
+                                           devinfo, tiling)) {
+               VkFormatFeatureFlags2KHR view_format_features =
+                  anv_get_image_format_features2(devinfo,
+                                                 possible_anv_format->vk_format,
+                                                 possible_anv_format, tiling,
+                                                 isl_mod_info);
+               all_formats_feature_flags |= view_format_features;
+            }
+         }
+      }
+   } else {
+      /* If we provide the list of possible formats, then check just them. */
+      for (uint32_t i = 0; i < format_list_info->viewFormatCount; ++i) {
+         VkFormat vk_view_format = format_list_info->pViewFormats[i];
+         const struct anv_format *anv_view_format =
+            anv_get_format(vk_view_format);
+         VkFormatFeatureFlags2KHR view_format_features =
+            anv_get_image_format_features2(devinfo, vk_view_format,
+                                           anv_view_format, tiling,
+                                           isl_mod_info);
+         all_formats_feature_flags |= view_format_features;
+      }
+   }
+
+   return all_formats_feature_flags;
+}
+
+
 static VkResult
 anv_get_image_format_properties(
    struct anv_physical_device *physical_device,
@@ -1212,40 +1271,12 @@ anv_get_image_format_properties(
       if (vk_format_is_depth_or_stencil(info->format))
          goto unsupported;
 
-      VkFormatFeatureFlags2 all_formats_feature_flags = format_feature_flags;
-
-      /* We need to check that each of the usage bits are allowed for at least
-       * one of the potential formats.
+      /* Gather all possible format feature flags for the formats listed in
+       * the format list or all the compatible formats.
        */
-      if (!format_list_info || format_list_info->viewFormatCount == 0) {
-         /* If we specify no list of possible formats, we can assume that
-          * every compatible format is possible and check all of them.
-          */
-         for (uint32_t fmt_arr_ind = 0; fmt_arr_ind < ARRAY_SIZE(anv_formats); ++fmt_arr_ind) {
-            for (uint32_t fmt_ind = 0; fmt_ind < anv_formats[fmt_arr_ind].n_formats; ++fmt_ind) {
-               const struct anv_format *possible_anv_format = &(anv_formats[fmt_arr_ind].formats[fmt_ind]);
-
-               if (anv_formats_are_compatible(format, possible_anv_format, devinfo, info->tiling)) {
-                  VkFormatFeatureFlags2KHR view_format_features =
-                        anv_get_image_format_features2(devinfo, possible_anv_format->vk_format,
-                                                       possible_anv_format, info->tiling,
-                                                       isl_mod_info);
-                  all_formats_feature_flags |= view_format_features;
-               }
-            }
-         }
-      } else {
-         /* If we provide the list of possible formats, then check just them.
-          */
-         for (uint32_t i = 0; i < format_list_info->viewFormatCount; ++i) {
-            VkFormat vk_view_format = format_list_info->pViewFormats[i];
-            const struct anv_format *anv_view_format = anv_get_format(vk_view_format);
-            VkFormatFeatureFlags2KHR view_format_features =
-                  anv_get_image_format_features2(devinfo, vk_view_format, anv_view_format,
-                                                 info->tiling, isl_mod_info);
-            all_formats_feature_flags |= view_format_features;
-         }
-      }
+      VkFormatFeatureFlags2 all_formats_feature_flags = format_feature_flags |
+         anv_formats_gather_format_features(devinfo, format, info->tiling,
+                                            isl_mod_info, format_list_info);
 
       if (!anv_format_supports_usage(all_formats_feature_flags, info->usage))
          goto unsupported;
