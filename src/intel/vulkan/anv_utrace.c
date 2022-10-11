@@ -83,7 +83,7 @@ anv_device_utrace_emit_copy_ts_buffer(struct u_trace_context *utctx,
    struct anv_address to_addr = (struct anv_address) {
       .bo = ts_to, .offset = to_offset * sizeof(uint64_t) };
 
-   anv_genX(&device->info, emit_so_memcpy)(&flush->memcpy_state,
+   anv_genX(device->info, emit_so_memcpy)(&flush->memcpy_state,
                                            to_addr, from_addr, count * sizeof(uint64_t));
 }
 
@@ -143,7 +143,7 @@ anv_device_utrace_flush_cmd_buffers(struct anv_queue *queue,
                             flush->batch_bo->map, flush->batch_bo->size);
 
       /* Emit the copies */
-      anv_genX(&device->info, emit_so_memcpy_init)(&flush->memcpy_state,
+      anv_genX(device->info, emit_so_memcpy_init)(&flush->memcpy_state,
                                                    device,
                                                    &flush->batch);
       for (uint32_t i = 0; i < cmd_buffer_count; i++) {
@@ -157,7 +157,7 @@ anv_device_utrace_flush_cmd_buffers(struct anv_queue *queue,
                                  anv_device_utrace_emit_copy_ts_buffer);
          }
       }
-      anv_genX(&device->info, emit_so_memcpy_fini)(&flush->memcpy_state);
+      anv_genX(device->info, emit_so_memcpy_fini)(&flush->memcpy_state);
 
       u_trace_flush(&flush->ds.trace, flush, true);
 
@@ -260,20 +260,20 @@ anv_utrace_read_ts(struct u_trace_context *utctx,
    if (ts[idx] == U_TRACE_NO_TIMESTAMP)
       return U_TRACE_NO_TIMESTAMP;
 
-   return intel_device_info_timebase_scale(&device->info, ts[idx]);
+   return intel_device_info_timebase_scale(device->info, ts[idx]);
 }
 
 static const char *
 queue_family_to_name(const struct anv_queue_family *family)
 {
    switch (family->engine_class) {
-   case I915_ENGINE_CLASS_RENDER:
+   case INTEL_ENGINE_CLASS_RENDER:
       return "render";
-   case I915_ENGINE_CLASS_COPY:
+   case INTEL_ENGINE_CLASS_COPY:
       return "copy";
-   case I915_ENGINE_CLASS_VIDEO:
+   case INTEL_ENGINE_CLASS_VIDEO:
       return "video";
-   case I915_ENGINE_CLASS_VIDEO_ENHANCE:
+   case INTEL_ENGINE_CLASS_VIDEO_ENHANCE:
       return "video-enh";
    default:
       return "unknown";
@@ -284,7 +284,7 @@ void
 anv_device_utrace_init(struct anv_device *device)
 {
    anv_bo_pool_init(&device->utrace_bo_pool, device, "utrace");
-   intel_ds_device_init(&device->ds, &device->info, device->fd,
+   intel_ds_device_init(&device->ds, device->info, device->fd,
                         device->physical->local_minor - 128,
                         INTEL_DS_API_VULKAN);
    u_trace_context_init(&device->ds.trace_context,

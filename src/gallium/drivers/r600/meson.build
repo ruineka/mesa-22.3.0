@@ -190,10 +190,14 @@ egd_tables_h = custom_target(
 
 r600_c_args = []
 if with_gallium_opencl
-  r600_c_args += '-DHAVE_OPENCL'
+  if dep_elf.found()
+    r600_c_args += '-DHAVE_OPENCL'
+  else
+    warning('r600 requires libelf to support opencl.')
+  endif
 endif
 
-r600_cpp_args = ['-std=c++17']
+r600_cpp_args = []
 if cpp.has_type('std::pmr::monotonic_buffer_resource',
                  args:['-std=c++17'],
                  prefix : '#include <memory_resource>')
@@ -205,6 +209,7 @@ libr600 = static_library(
   [files_r600, egd_tables_h],
   c_args : [r600_c_args, '-Wstrict-overflow=0'],
   cpp_args: r600_cpp_args,
+  override_options: ['cpp_std=c++17'],
   gnu_symbol_visibility : 'hidden',
   include_directories : [
     inc_src, inc_mapi, inc_mesa, inc_include, inc_compiler, inc_gallium, inc_gallium_aux, inc_amd_common,

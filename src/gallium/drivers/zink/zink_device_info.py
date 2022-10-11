@@ -86,9 +86,11 @@ EXTENSIONS = [
     Extension("VK_KHR_get_memory_requirements2"),
     Extension("VK_EXT_post_depth_coverage"),
     Extension("VK_EXT_depth_clip_control", alias="clip_control", features=True),
+    Extension("VK_EXT_depth_clamp_zero_one", alias="clamp_01", features=True),
     Extension("VK_EXT_shader_subgroup_ballot"),
     Extension("VK_EXT_shader_subgroup_vote"),
     Extension("VK_EXT_shader_atomic_float", alias="atomic_float", features=True),
+    Extension("VK_KHR_shader_atomic_int64", alias="atomic_int", features=True),
     Extension("VK_KHR_8bit_storage",
               alias="storage_8bit",
               features=True,
@@ -105,6 +107,9 @@ EXTENSIONS = [
         properties=True),
     Extension("VK_EXT_memory_budget"),
     Extension("VK_KHR_draw_indirect_count"),
+    Extension("VK_EXT_attachment_feedback_loop_layout",
+              alias="feedback_loop",
+              features=True),
     Extension("VK_EXT_fragment_shader_interlock",
        alias="interlock",
        features=True,
@@ -186,6 +191,10 @@ EXTENSIONS = [
         alias="dynamic_state2",
         features=True,
         conditions=["$feats.extendedDynamicState2"]),
+    Extension("VK_EXT_extended_dynamic_state3",
+        alias="dynamic_state3",
+        properties=True,
+        features=True),
     Extension("VK_EXT_pipeline_creation_cache_control",
         alias="pipeline_cache_control",
         features=True,
@@ -206,6 +215,10 @@ EXTENSIONS = [
         features=True,
         conditions=["$feats.scalarBlockLayout"]),
     Extension("VK_KHR_swapchain"),
+    Extension("VK_EXT_rasterization_order_attachment_access",
+              alias="rast_order_access",
+              features=True,
+              conditions=["$feats.rasterizationOrderColorAttachmentAccess"]),
     Extension("VK_KHR_shader_float16_int8",
               alias="shader_float16_int8",
               features=True),
@@ -226,7 +239,7 @@ EXTENSIONS = [
         alias="push",
         properties=True),
     Extension("VK_KHR_descriptor_update_template",
-        alias="template"),
+        alias="template", required=True),
     Extension("VK_EXT_line_rasterization",
         alias="line_rast",
         properties=True,
@@ -249,6 +262,10 @@ EXTENSIONS = [
     Extension("VK_EXT_depth_clip_enable",
         alias="depth_clip_enable",
         features=True),
+    Extension("VK_EXT_shader_demote_to_helper_invocation",
+        alias="demote",
+        features=True,
+        conditions=["$feats.shaderDemoteToHelperInvocation"]),
 ]
 
 # constructor: Versions(device_version(major, minor, patch), struct_version(major, minor))
@@ -260,6 +277,7 @@ EXTENSIONS = [
 VERSIONS = [
     Version((1,1,0), (1,1)),
     Version((1,2,0), (1,2)),
+    Version((1,3,0), (1,3)),
 ]
 
 # There exists some inconsistencies regarding the enum constants, fix them.

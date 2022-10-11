@@ -103,7 +103,7 @@
 #endif
 
 #define perf_debug(...) do {                       \
-   if (unlikely(V3D_DEBUG & V3D_DEBUG_PERF))       \
+   if (V3D_DBG(PERF))                            \
       fprintf(stderr, __VA_ARGS__);                \
 } while (0)
 
@@ -165,6 +165,8 @@ struct v3dv_physical_device {
    const struct v3d_compiler *compiler;
    uint32_t next_program_id;
 
+   uint64_t heap_used;
+
    /* This array holds all our 'struct v3dv_bo' allocations. We use this
     * so we can add a refcount to our BOs and check if a particular BO
     * was already allocated in this device using its GEM handle. This is
@@ -222,9 +224,6 @@ bool v3dv_meta_can_use_tlb(struct v3dv_image *image,
 
 struct v3dv_instance {
    struct vk_instance vk;
-
-   int physicalDeviceCount;
-   struct v3dv_physical_device physicalDevice;
 
    bool pipeline_cache_enabled;
    bool default_pipeline_cache_enabled;
@@ -314,6 +313,7 @@ struct v3dv_meta_texel_buffer_copy_pipeline {
 
 struct v3dv_pipeline_key {
    bool robust_buffer_access;
+   bool robust_image_access;
    uint8_t topology;
    uint8_t logicop_func;
    bool msaa;
@@ -519,7 +519,11 @@ struct v3dv_device {
     * attributes will create their own BO.
     */
    struct v3dv_bo *default_attribute_float;
+
    VkPhysicalDeviceFeatures features;
+   struct {
+      bool robustImageAccess;
+   } ext_features;
 
    void *device_address_mem_ctx;
    struct util_dynarray device_address_bo_list; /* Array of struct v3dv_bo * */
@@ -606,6 +610,12 @@ struct v3dv_image {
    bool is_native_buffer_memory;
 #endif
 };
+
+VkResult
+v3dv_image_init(struct v3dv_device *device,
+                const VkImageCreateInfo *pCreateInfo,
+                const VkAllocationCallbacks *pAllocator,
+                struct v3dv_image *image);
 
 VkImageViewType v3dv_image_type_to_view_type(VkImageType type);
 
@@ -1298,8 +1308,8 @@ struct v3dv_barrier_state {
    /* For graphics barriers, access masks involved. Used to decide if we need
     * to execute a binning or render barrier.
     */
-   VkAccessFlags bcl_buffer_access;
-   VkAccessFlags bcl_image_access;
+   VkAccessFlags2 bcl_buffer_access;
+   VkAccessFlags2 bcl_image_access;
 };
 
 struct v3dv_cmd_buffer_state {
@@ -1429,6 +1439,11 @@ struct v3dv_cmd_buffer_state {
    } query;
 };
 
+void
+v3dv_cmd_buffer_state_get_viewport_z_xform(struct v3dv_cmd_buffer_state *state,
+                                           uint32_t vp_idx,
+                                           float *translate_z, float *scale_z);
+
 /* The following struct represents the info from a descriptor that we store on
  * the host memory. They are mostly links to other existing vulkan objects,
  * like the image_view in order to access to swizzle info, or the buffer used
@@ -1517,6 +1532,8 @@ struct v3dv_cmd_buffer_private_obj {
    uint64_t obj;
    v3dv_cmd_buffer_private_obj_destroy_cb destroy_cb;
 };
+
+extern const struct vk_command_buffer_ops v3dv_cmd_buffer_ops;
 
 struct v3dv_cmd_buffer {
    struct vk_command_buffer vk;
@@ -1621,7 +1638,9 @@ void v3dv_cmd_buffer_merge_barrier_state(struct v3dv_barrier_state *dst,
 bool v3dv_cmd_buffer_check_needs_load(const struct v3dv_cmd_buffer_state *state,
                                       VkImageAspectFlags aspect,
                                       uint32_t first_subpass_idx,
-                                      VkAttachmentLoadOp load_op);
+                                      VkAttachmentLoadOp load_op,
+                                      uint32_t last_subpass_idx,
+                                      VkAttachmentStoreOp store_op);
 
 bool v3dv_cmd_buffer_check_needs_store(const struct v3dv_cmd_buffer_state *state,
                                        VkImageAspectFlags aspect,
@@ -1842,8 +1861,35 @@ struct v3dv_pipeline_layout {
    uint32_t dynamic_offset_count;
    uint32_t push_constant_size;
 
+   /* Pipeline layouts can be destroyed after creating pipelines since
+    * maintenance4.
+    */
+   uint32_t ref_cnt;
+
    unsigned char sha1[20];
 };
+
+void
+v3dv_pipeline_layout_destroy(struct v3dv_device *device,
+                             struct v3dv_pipeline_layout *layout,
+                             const VkAllocationCallbacks *alloc);
+
+static inline void
+v3dv_pipeline_layout_ref(struct v3dv_pipeline_layout *layout)
+{
+   assert(layout && layout->ref_cnt >= 1);
+   p_atomic_inc(&layout->ref_cnt);
+}
+
+static inline void
+v3dv_pipeline_layout_unref(struct v3dv_device *device,
+                           struct v3dv_pipeline_layout *layout,
+                           const VkAllocationCallbacks *alloc)
+{
+   assert(layout && layout->ref_cnt >= 1);
+   if (p_atomic_dec_zero(&layout->ref_cnt))
+      v3dv_pipeline_layout_destroy(device, layout, alloc);
+}
 
 /*
  * We are using descriptor maps for ubo/ssbo and texture/samplers, so we need
@@ -2003,16 +2049,7 @@ struct v3dv_pipeline {
    struct v3dv_render_pass *pass;
    struct v3dv_subpass *subpass;
 
-   /* Note: We can't use just a MESA_SHADER_STAGES array because we also need
-    * to track binning shaders. Note these will be freed once the pipeline
-    * has been compiled.
-    */
-   struct v3dv_pipeline_stage *vs;
-   struct v3dv_pipeline_stage *vs_bin;
-   struct v3dv_pipeline_stage *gs;
-   struct v3dv_pipeline_stage *gs_bin;
-   struct v3dv_pipeline_stage *fs;
-   struct v3dv_pipeline_stage *cs;
+   struct v3dv_pipeline_stage *stages[BROADCOM_SHADER_STAGES];
 
    /* Flags for whether optional pipeline stages are present, for convenience */
    bool has_gs;
@@ -2045,6 +2082,7 @@ struct v3dv_pipeline {
    uint32_t sample_mask;
 
    bool primitive_restart;
+   bool negative_one_to_one;
 
    /* Accessed by binding. So vb[binding]->stride is the stride of the vertex
     * array with such binding

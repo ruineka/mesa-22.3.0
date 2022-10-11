@@ -609,17 +609,17 @@ LLVMpipe driver environment variables
 VMware SVGA driver environment variables
 ----------------------------------------
 
-:envvar`SVGA_FORCE_SWTNL`
+:envvar:`SVGA_FORCE_SWTNL`
    force use of software vertex transformation
-:envvar`SVGA_NO_SWTNL`
+:envvar:`SVGA_NO_SWTNL`
    don't allow software vertex transformation fallbacks (will often
    result in incorrect rendering).
-:envvar`SVGA_DEBUG`
+:envvar:`SVGA_DEBUG`
    for dumping shaders, constant buffers, etc. See the code for details.
-:envvar`SVGA_EXTRA_LOGGING`
+:envvar:`SVGA_EXTRA_LOGGING`
    if set, enables extra logging to the ``vmware.log`` file, such as the
    OpenGL program's name and command line arguments.
-:envvar`SVGA_NO_LOGGING`
+:envvar:`SVGA_NO_LOGGING`
    if set, disables logging to the ``vmware.log`` file. This is useful
    when using Valgrind because it otherwise crashes when initializing
    the host log feature.
@@ -770,6 +770,9 @@ RADV driver environment variables
       rt extensions with older hardware.
    ``gewave32``
       enable wave32 for vertex/tess/geometry shaders (GFX10+)
+   ``gpl``
+      enable experimental (and suboptimal) graphics pipeline library (still
+      under active development)
    ``localbos``
       enable local BOs
    ``nosam``
@@ -808,6 +811,19 @@ RADV driver environment variables
    enable trigger file based SQTT/RGP captures (eg.
    `export RADV_THREAD_TRACE_TRIGGER=/tmp/radv_sqtt_trigger` and then
    `touch /tmp/radv_sqtt_trigger` to capture a frame)
+
+:envvar:`RADV_RRA_TRACE`
+   enable frame based Radeon Raytracing Analyzer captures
+   (e.g. `export RADV_RRA_TRACE=100` will capture the frame #100)
+
+:envvar:`RADV_RRA_TRACE_TRIGGER`
+   enable trigger file based RRA captures (eg.
+   `export RADV_RRA_TRACE_TRIGGER=/tmp/radv_rra_trigger` and then
+   `touch /tmp/radv_rra_trigger` to capture a frame)
+
+:envvar:`RADV_RRA_TRACE_VALIDATE`
+   enable validation of captured acceleration structures. Can be
+   useful if RRA crashes upon opening a trace.
 
 :envvar:`ACO_DEBUG`
    a comma-separated list of named flags, which do various things:
@@ -1123,6 +1139,44 @@ r300 driver environment variables
       Request TGSI shaders from the state tracker
    ``notcl``
       Disable hardware accelerated Transform/Clip/Lighting
+
+Asahi driver environment variables
+----------------------------------
+
+:envvar:`ASAHI_MESA_DEBUG`
+   a comma-separated list of named flags, which do various things:
+
+   ``trace``
+      Trace work submitted to the GPU to files, using the agxdecode
+      infrastructure. This produces a large volume of data, so should be used
+      with caution. The traces are written to ``agxdecode.dump``,
+      but this can be overridden using ``AGXDECODE_DUMP_FILE``.
+   ``no16``
+      Disable 16-bit floating point support. This may workaround application
+      bugs in certain OpenGL ES applications originally written for desktops. If
+      such applications are found in the wild, they should be fixed upstream (if
+      possible) or added in the Mesa-wide driconf (if closed source).
+   ``dirty``
+      In debug builds only: disable dirty tracking optimizations.
+
+:envvar:`AGX_MESA_DEBUG`
+   a comma-separated list of named flags, which do various things:
+
+   ``shaders``
+      Print shaders being compiled at various stages in the pipeline.
+   ``shaderdb``
+      Print statistics about compiled shaders.
+   ``verbose``
+      Disassemble in verbose mode, including additional information that may be
+      useful for debugging.
+   ``internal``
+      Include even internal shaders (as produced for clears, blits, and such)
+      when printing shaders. Without this flag, internal shaders are ignored by
+      the shaders and shaderdb flags.
+   ``novalidate``
+      In debug builds only: skip internal intermediate representation validation.
+   ``noopt``
+      Disable various backend optimizations.
 
 Other Gallium drivers have their own environment variables. These may
 change frequently so the source code should be consulted for details.

@@ -25,6 +25,8 @@
  *    Rob Clark <robclark@freedesktop.org>
  */
 
+#define FD_BO_NO_HARDPIN 1
+
 #include "pipe/p_state.h"
 #include "util/bitset.h"
 #include "util/format/u_format.h"
@@ -281,7 +283,7 @@ setup_stream_out(struct fd_context *ctx, struct fd6_program_state *state,
        * tess + xfb fails some tests if we don't emit this.
        */
       OUT_RING(ring, REG_A6XX_PC_SO_STREAM_CNTL);
-      OUT_RING(ring, A6XX_PC_SO_STREAM_CNTL_STREAM_ENABLE);
+      OUT_RING(ring, A6XX_PC_SO_STREAM_CNTL_STREAM_ENABLE(0x1));
    }
 
    state->streamout_stateobj = ring;
@@ -1285,6 +1287,14 @@ fd6_program_create(void *data, struct ir3_shader_variant *bs,
       &fd6_last_shader(state)->stream_output;
    if (stream_output->num_outputs > 0)
       state->stream_output = stream_output;
+
+   /* Note that binning pass uses same const state as draw pass: */
+   state->user_consts_cmdstream_size =
+         fd6_user_consts_cmdstream_size(state->vs) +
+         fd6_user_consts_cmdstream_size(state->hs) +
+         fd6_user_consts_cmdstream_size(state->ds) +
+         fd6_user_consts_cmdstream_size(state->gs) +
+         fd6_user_consts_cmdstream_size(state->fs);
 
    return &state->base;
 }

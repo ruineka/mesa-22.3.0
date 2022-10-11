@@ -32,6 +32,7 @@
 #include "ac_spm.h"
 #include "ac_sqtt.h"
 #include "ac_gpu_info.h"
+#include "amd_family.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -366,25 +367,25 @@ static enum sqtt_gfxip_level ac_gfx_level_to_sqtt_gfxip_level(enum amd_gfx_level
 static enum sqtt_memory_type ac_vram_type_to_sqtt_memory_type(uint32_t vram_type)
 {
    switch (vram_type) {
-   case AMDGPU_VRAM_TYPE_UNKNOWN:
+   case AMD_VRAM_TYPE_UNKNOWN:
       return SQTT_MEMORY_TYPE_UNKNOWN;
-   case AMDGPU_VRAM_TYPE_DDR2:
+   case AMD_VRAM_TYPE_DDR2:
       return SQTT_MEMORY_TYPE_DDR2;
-   case AMDGPU_VRAM_TYPE_DDR3:
+   case AMD_VRAM_TYPE_DDR3:
       return SQTT_MEMORY_TYPE_DDR3;
-   case AMDGPU_VRAM_TYPE_DDR4:
+   case AMD_VRAM_TYPE_DDR4:
       return SQTT_MEMORY_TYPE_DDR4;
-   case AMDGPU_VRAM_TYPE_GDDR5:
+   case AMD_VRAM_TYPE_GDDR5:
       return SQTT_MEMORY_TYPE_GDDR5;
-   case AMDGPU_VRAM_TYPE_HBM:
+   case AMD_VRAM_TYPE_HBM:
       return SQTT_MEMORY_TYPE_HBM;
-   case AMDGPU_VRAM_TYPE_GDDR6:
+   case AMD_VRAM_TYPE_GDDR6:
       return SQTT_MEMORY_TYPE_GDDR6;
-   case AMDGPU_VRAM_TYPE_DDR5:
+   case AMD_VRAM_TYPE_DDR5:
       return SQTT_MEMORY_TYPE_LPDDR5;
-   case AMDGPU_VRAM_TYPE_GDDR1:
-   case AMDGPU_VRAM_TYPE_GDDR3:
-   case AMDGPU_VRAM_TYPE_GDDR4:
+   case AMD_VRAM_TYPE_GDDR1:
+   case AMD_VRAM_TYPE_GDDR3:
+   case AMD_VRAM_TYPE_GDDR4:
    default:
       unreachable("Invalid vram type");
    }
@@ -964,6 +965,7 @@ static void ac_sqtt_dump_spm(const struct ac_spm_trace_data *spm_trace,
    fseek(output, file_offset, SEEK_SET);
 }
 
+#if defined(USE_LIBELF)
 static void ac_sqtt_dump_data(struct radeon_info *rad_info,
                               struct ac_thread_trace *thread_trace,
                               const struct ac_spm_trace_data *spm_trace,
@@ -1150,11 +1152,15 @@ static void ac_sqtt_dump_data(struct radeon_info *rad_info,
       ac_sqtt_dump_spm(spm_trace, file_offset, output);
    }
 }
+#endif
 
 int ac_dump_rgp_capture(struct radeon_info *info,
                         struct ac_thread_trace *thread_trace,
                         const struct ac_spm_trace_data *spm_trace)
 {
+#if !defined(USE_LIBELF)
+   return -1;
+#else
    char filename[2048];
    struct tm now;
    time_t t;
@@ -1177,4 +1183,5 @@ int ac_dump_rgp_capture(struct radeon_info *info,
 
    fclose(f);
    return 0;
+#endif
 }

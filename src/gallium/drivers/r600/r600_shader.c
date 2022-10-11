@@ -179,14 +179,15 @@ int r600_pipe_shader_create(struct pipe_context *ctx,
 		pipe_shader_type_from_mesa(sel->nir->info.stage);
 	
 	bool dump = r600_can_dump_shader(&rctx->screen->b, processor);
-	unsigned use_sb = !(rctx->screen->b.debug_flags & DBG_NO_SB) ||
+	unsigned use_sb = (rctx->screen->b.debug_flags & DBG_USE_TGSI &&
+                      !(rctx->screen->b.debug_flags & DBG_NO_SB)) ||
                      (rctx->screen->b.debug_flags & DBG_NIR_SB);
 	unsigned sb_disasm;
 	unsigned export_shader;
 	
 	shader->shader.bc.isa = rctx->isa;
 	
-	if (!(rscreen->b.debug_flags & DBG_NIR_PREFERRED)) {
+	if (rscreen->b.debug_flags & DBG_USE_TGSI) {
 		assert(sel->ir_type == PIPE_SHADER_IR_TGSI);
 		r = r600_shader_from_tgsi(rctx, shader, key);
 		if (r) {
@@ -223,7 +224,7 @@ int r600_pipe_shader_create(struct pipe_context *ctx,
 				tgsi_dump(sel->tokens, 0);
 			}
 			
-			if (rscreen->b.debug_flags & (DBG_NIR_PREFERRED)) {
+			if (!(rscreen->b.debug_flags & DBG_USE_TGSI)) {
 				fprintf(stderr, "--NIR --------------------------------------------------------\n");
 				nir_print_shader(sel->nir, stderr);
 			}
@@ -259,6 +260,9 @@ int r600_pipe_shader_create(struct pipe_context *ctx,
 	use_sb &= !shader->shader.uses_atomics;
 	use_sb &= !shader->shader.uses_images;
 	use_sb &= !shader->shader.uses_helper_invocation;
+
+	/* SB can't handle READ_SCRATCH properly */
+	use_sb &= !(shader->shader.needs_scratch_space && rscreen->b.gfx_level < R700);
 
 	/* sb has bugs in array reg allocation
 	 * (dEQP-GLES2.functional.shaders.struct.local.struct_array_dynamic_index_fragment

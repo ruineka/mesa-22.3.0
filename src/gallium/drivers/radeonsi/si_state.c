@@ -1215,6 +1215,9 @@ static void si_bind_rs_state(struct pipe_context *ctx, void *state)
        old_rs->poly_stipple_enable != rs->poly_stipple_enable ||
        old_rs->flatshade != rs->flatshade)
       si_update_vrs_flat_shading(sctx);
+
+   if (old_rs->flatshade_first != rs->flatshade_first)
+      si_update_ngg_prim_state_sgpr(sctx, si_get_vs(sctx)->current, sctx->ngg);
 }
 
 static void si_delete_rs_state(struct pipe_context *ctx, void *state)
@@ -5307,13 +5310,6 @@ static void si_set_tess_state(struct pipe_context *ctx, const float default_oute
    si_set_internal_const_buffer(sctx, SI_HS_CONST_DEFAULT_TESS_LEVELS, &cb);
 }
 
-static void si_set_patch_vertices(struct pipe_context *ctx, uint8_t patch_vertices)
-{
-   struct si_context *sctx = (struct si_context *)ctx;
-
-   sctx->patch_vertices = patch_vertices;
-}
-
 static void si_texture_barrier(struct pipe_context *ctx, unsigned flags)
 {
    struct si_context *sctx = (struct si_context *)ctx;
@@ -5350,6 +5346,10 @@ static void si_memory_barrier(struct pipe_context *ctx, unsigned flags)
        * automatically at end of shader, but the contents of other
        * L1 caches might still be stale. */
       sctx->flags |= SI_CONTEXT_INV_VCACHE;
+
+      if (flags & (PIPE_BARRIER_IMAGE | PIPE_BARRIER_TEXTURE) &&
+          sctx->screen->info.tcc_rb_non_coherent)
+         sctx->flags |= SI_CONTEXT_INV_L2;
    }
 
    if (flags & PIPE_BARRIER_INDEX_BUFFER) {
@@ -5450,7 +5450,6 @@ void si_init_state_functions(struct si_context *sctx)
    sctx->b.texture_barrier = si_texture_barrier;
    sctx->b.set_min_samples = si_set_min_samples;
    sctx->b.set_tess_state = si_set_tess_state;
-   sctx->b.set_patch_vertices = si_set_patch_vertices;
 
    sctx->b.set_active_query_state = si_set_active_query_state;
 }

@@ -143,8 +143,14 @@ struct st_context
    boolean transcode_astc;
    boolean has_astc_2d_ldr;
    boolean has_astc_5x5_ldr;
+   boolean has_s3tc;
+   boolean has_rgtc;
+   boolean has_latc;
+   boolean has_bptc;
    boolean prefer_blit_based_texture_transfer;
    boolean allow_compute_based_texture_transfer;
+   boolean force_compute_based_texture_transfer;
+   boolean force_specialized_compute_transfer;
    boolean force_persample_in_shader;
    boolean has_shareable_shaders;
    boolean has_half_float_packing;
@@ -280,7 +286,6 @@ struct st_context
    struct {
       struct pipe_rasterizer_state rasterizer;
       struct pipe_sampler_state sampler;
-      struct pipe_sampler_state atlas_sampler;
       enum pipe_format tex_format;
       struct st_bitmap_cache cache;
    } bitmap;

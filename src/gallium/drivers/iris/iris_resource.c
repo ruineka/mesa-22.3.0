@@ -671,9 +671,11 @@ iris_resource_configure_main(const struct iris_screen *screen,
    } else if (templ->usage == PIPE_USAGE_STAGING ||
               templ->bind & (PIPE_BIND_LINEAR | PIPE_BIND_CURSOR)) {
       tiling_flags = ISL_TILING_LINEAR_BIT;
+   } else if (!screen->devinfo.has_tiling_uapi &&
+              (templ->bind & (PIPE_BIND_SCANOUT | PIPE_BIND_SHARED))) {
+      tiling_flags = ISL_TILING_LINEAR_BIT;
    } else if (templ->bind & PIPE_BIND_SCANOUT) {
-      tiling_flags = screen->devinfo.has_tiling_uapi ?
-                     ISL_TILING_X_BIT : ISL_TILING_LINEAR_BIT;
+      tiling_flags = ISL_TILING_X_BIT;
    } else {
       tiling_flags = ISL_TILING_ANY_MASK;
    }
@@ -1074,6 +1076,22 @@ iris_resource_finish_aux_import(struct pipe_screen *pscreen,
    }
 }
 
+static uint32_t
+iris_buffer_alignment(uint64_t size)
+{
+   /* Some buffer operations want some amount of alignment.  The largest
+    * buffer texture pixel size is 4 * 4 = 16B.  OpenCL data is also supposed
+    * to be aligned and largest OpenCL data type is a double16 which is
+    * 8 * 16 = 128B.  Align to the largest power of 2 which fits in the size,
+    * up to 128B.
+    */
+   uint32_t align = MAX2(4 * 4, 8 * 16);
+   while (align > size)
+      align >>= 1;
+
+   return align;
+}
+
 static struct pipe_resource *
 iris_resource_create_for_buffer(struct pipe_screen *pscreen,
                                 const struct pipe_resource *templ)
@@ -1108,8 +1126,9 @@ iris_resource_create_for_buffer(struct pipe_screen *pscreen,
 
    unsigned flags = iris_resource_alloc_flags(screen, templ, res->aux.usage);
 
-   res->bo =
-      iris_bo_alloc(screen->bufmgr, name, templ->width0, 1, memzone, flags);
+   res->bo = iris_bo_alloc(screen->bufmgr, name, templ->width0,
+                           iris_buffer_alignment(templ->width0),
+                           memzone, flags);
 
    if (!res->bo) {
       iris_resource_destroy(pscreen, &res->base.b);
@@ -1148,6 +1167,18 @@ iris_resource_create_with_modifiers(struct pipe_screen *pscreen,
    const bool isl_surf_created_successfully =
       iris_resource_configure_main(screen, res, templ, modifier, 0);
    if (!isl_surf_created_successfully)
+      goto fail;
+
+   /* Don't create staging surfaces that will use over half the aperture,
+    * since staging implies you are copying data to another resource that's
+    * at least as large, and then both wouldn't fit in the aperture.
+    *
+    * Skip this for discrete cards, as the destination buffer might be in
+    * device local memory while the staging buffer would be in system memory,
+    * so both would fit.
+    */
+   if (templ->usage == PIPE_USAGE_STAGING && !devinfo->has_local_mem &&
+       res->surf.size_B > devinfo->aperture_bytes / 2)
       goto fail;
 
    if (!iris_resource_configure_aux(screen, res, false))
@@ -1213,7 +1244,6 @@ iris_resource_create_with_modifiers(struct pipe_screen *pscreen,
    return &res->base.b;
 
 fail:
-   fprintf(stderr, "XXX: resource creation failed\n");
    iris_resource_destroy(pscreen, &res->base.b);
    return NULL;
 }
@@ -1912,7 +1942,8 @@ iris_invalidate_resource(struct pipe_context *ctx,
 
    struct iris_bo *old_bo = res->bo;
    struct iris_bo *new_bo =
-      iris_bo_alloc(screen->bufmgr, res->bo->name, resource->width0, 1,
+      iris_bo_alloc(screen->bufmgr, res->bo->name, resource->width0,
+                    iris_buffer_alignment(resource->width0),
                     iris_memzone_for_address(old_bo->address), 0);
    if (!new_bo)
       return;
@@ -1997,7 +2028,12 @@ iris_map_copy_region(struct iris_transfer *map)
       templ.target = PIPE_TEXTURE_2D;
 
    map->staging = iris_resource_create(pscreen, &templ);
-   assert(map->staging);
+
+   /* If we fail to create a staging resource, the caller will fallback
+    * to mapping directly on the CPU.
+    */
+   if (!map->staging)
+      return;
 
    if (templ.target != PIPE_BUFFER) {
       struct isl_surf *surf = &((struct iris_resource *) map->staging)->surf;
@@ -2436,9 +2472,12 @@ iris_transfer_map(struct pipe_context *ctx,
       map->batch = &ice->batches[IRIS_BATCH_RENDER];
       map->blorp = &ice->blorp;
       iris_map_copy_region(map);
-   } else {
-      /* Otherwise we're free to map on the CPU. */
+   }
 
+   /* If we've requested a direct mapping, or iris_map_copy_region failed
+    * to create a staging resource, then map it directly on the CPU.
+    */
+   if (!map->ptr) {
       if (resource->target != PIPE_BUFFER) {
          iris_resource_access_raw(ice, res, level, box->z, box->depth,
                                   usage & PIPE_MAP_WRITE);
@@ -2691,7 +2730,10 @@ iris_init_screen_resource_functions(struct pipe_screen *pscreen)
    pscreen->memobj_create_from_handle = iris_memobj_create_from_handle;
    pscreen->memobj_destroy = iris_memobj_destroy;
    pscreen->transfer_helper =
-      u_transfer_helper_create(&transfer_vtbl, true, true, false, true, false);
+      u_transfer_helper_create(&transfer_vtbl,
+                               U_TRANSFER_HELPER_SEPARATE_Z32S8 |
+                               U_TRANSFER_HELPER_SEPARATE_STENCIL |
+                               U_TRANSFER_HELPER_MSAA_MAP);
 }
 
 void

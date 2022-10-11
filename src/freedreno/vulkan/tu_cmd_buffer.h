@@ -35,6 +35,7 @@ enum tu_draw_state_group_id
    TU_DRAW_STATE_LRZ_AND_DEPTH_PLANE,
    TU_DRAW_STATE_PRIM_MODE_GMEM,
    TU_DRAW_STATE_PRIM_MODE_SYSMEM,
+   TU_DRAW_STATE_MSAA,
 
    /* dynamic state related draw states */
    TU_DRAW_STATE_DYNAMIC,
@@ -46,6 +47,8 @@ struct tu_descriptor_state
    struct tu_descriptor_set *sets[MAX_SETS];
    struct tu_descriptor_set push_set;
    uint32_t dynamic_descriptors[MAX_DYNAMIC_BUFFERS_SIZE];
+   uint32_t max_sets_bound;
+   bool dynamic_bound;
 };
 
 enum tu_cmd_dirty_bits
@@ -63,8 +66,9 @@ enum tu_cmd_dirty_bits
    TU_CMD_DIRTY_RASTERIZER_DISCARD = BIT(10),
    TU_CMD_DIRTY_VIEWPORTS = BIT(11),
    TU_CMD_DIRTY_BLEND = BIT(12),
+   TU_CMD_DIRTY_PATCH_CONTROL_POINTS = BIT(13),
    /* all draw states were disabled and need to be re-enabled: */
-   TU_CMD_DIRTY_DRAW_STATE = BIT(13)
+   TU_CMD_DIRTY_DRAW_STATE = BIT(14)
 };
 
 /* There are only three cache domains we have to care about: the CCU, or
@@ -247,6 +251,7 @@ struct tu_cache_state {
 struct tu_vs_params {
    uint32_t vertex_offset;
    uint32_t first_instance;
+   uint32_t draw_id;
 };
 
 /* This should be for state that is set inside a renderpass and used at
@@ -260,6 +265,7 @@ struct tu_render_pass_state
    bool has_tess;
    bool has_prim_generated_query_in_rp;
    bool disable_gmem;
+   bool sysmem_single_prim_mode;
 
    /* Track whether conditional predicate for COND_REG_EXEC is changed in draw_cs */
    bool draw_cs_writes_to_cond_pred;
@@ -309,6 +315,9 @@ struct tu_cmd_state
       uint32_t size;
       uint32_t stride;
    } vb[MAX_VBS];
+
+   uint32_t max_vbs_bound;
+
    VkViewport viewport[MAX_VIEWPORTS];
    VkRect2D scissor[MAX_SCISSORS];
    uint32_t max_viewport, max_scissor;
@@ -317,6 +326,8 @@ struct tu_cmd_state
    uint32_t dynamic_stencil_mask;
    uint32_t dynamic_stencil_wrmask;
    uint32_t dynamic_stencil_ref;
+   bool stencil_front_write;
+   bool stencil_back_write;
 
    uint32_t gras_su_cntl, rb_depth_cntl, rb_stencil_cntl;
    uint32_t pc_raster_cntl, vpc_unknown_9107;
@@ -335,6 +346,7 @@ struct tu_cmd_state
    struct tu_draw_state vertex_buffers;
    struct tu_draw_state shader_const;
    struct tu_draw_state desc_sets;
+   struct tu_draw_state msaa;
 
    struct tu_draw_state vs_params;
 
@@ -393,7 +405,11 @@ struct tu_cmd_state
    bool tessfactor_addr_set;
    bool predication_active;
    enum a5xx_line_mode line_mode;
+   VkSampleCountFlagBits samples;
+   bool msaa_disable;
    bool z_negative_one_to_one;
+
+   unsigned patch_control_points;
 
    /* VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT and
     * VK_QUERY_TYPE_PRIMITIVES_GENERATED_EXT are allowed to run simultaniously,
@@ -501,16 +517,6 @@ struct tu_cmd_state
    struct tu_vs_params last_vs_params;
 };
 
-struct tu_cmd_pool
-{
-   struct vk_command_pool vk;
-
-   struct list_head cmd_buffers;
-   struct list_head free_cmd_buffers;
-};
-VK_DEFINE_NONDISP_HANDLE_CASTS(tu_cmd_pool, vk.base, VkCommandPool,
-                               VK_OBJECT_TYPE_COMMAND_POOL)
-
 enum tu_cmd_buffer_status
 {
    TU_CMD_BUFFER_STATUS_INVALID,
@@ -525,9 +531,6 @@ struct tu_cmd_buffer
    struct vk_command_buffer vk;
 
    struct tu_device *device;
-
-   struct tu_cmd_pool *pool;
-   struct list_head pool_link;
 
    struct u_trace trace;
    struct u_trace_iterator trace_renderpass_start;
@@ -559,8 +562,6 @@ struct tu_cmd_buffer
    struct tu_subpass dynamic_subpass;
    struct tu_framebuffer dynamic_framebuffer;
 
-   VkResult record_result;
-
    struct tu_cs cs;
    struct tu_cs draw_cs;
    struct tu_cs tile_store_cs;
@@ -590,6 +591,8 @@ struct tu_cmd_buffer
 };
 VK_DEFINE_HANDLE_CASTS(tu_cmd_buffer, vk.base, VkCommandBuffer,
                        VK_OBJECT_TYPE_COMMAND_BUFFER)
+
+extern const struct vk_command_buffer_ops tu_cmd_buffer_ops;
 
 static inline uint32_t
 tu_attachment_gmem_offset(struct tu_cmd_buffer *cmd,
@@ -651,7 +654,7 @@ tu_get_descriptors_state(struct tu_cmd_buffer *cmd_buffer,
 }
 
 void tu6_emit_msaa(struct tu_cs *cs, VkSampleCountFlagBits samples,
-                   enum a5xx_line_mode line_mode);
+                   bool msaa_disable);
 
 void tu6_emit_window_scissor(struct tu_cs *cs, uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2);
 

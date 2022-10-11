@@ -38,10 +38,6 @@ extern "C" {
 #endif
 
 
-/* not real api don't use */
-bool
-batch_ptr_add_usage(struct zink_batch *batch, struct set *s, void *ptr);
-
 void
 zink_reset_batch_state(struct zink_context *ctx, struct zink_batch_state *bs);
 
@@ -69,34 +65,19 @@ void
 zink_batch_add_wait_semaphore(struct zink_batch *batch, VkSemaphore sem);
 
 void
-zink_batch_resource_usage_set(struct zink_batch *batch, struct zink_resource *res, bool write);
-
-void
 zink_batch_reference_resource_rw(struct zink_batch *batch,
                                  struct zink_resource *res,
                                  bool write);
 void
 zink_batch_reference_resource(struct zink_batch *batch, struct zink_resource *res);
 
-void
+bool
 zink_batch_reference_resource_move(struct zink_batch *batch, struct zink_resource *res);
-
-void
-zink_batch_reference_sampler_view(struct zink_batch *batch,
-                                  struct zink_sampler_view *sv);
 
 void
 zink_batch_reference_program(struct zink_batch *batch,
                              struct zink_program *pg);
 
-void
-zink_batch_reference_image_view(struct zink_batch *batch,
-                                struct zink_image_view *image_view);
-
-void
-zink_batch_reference_bufferview(struct zink_batch *batch, struct zink_buffer_view *buffer_view);
-void
-zink_batch_reference_surface(struct zink_batch *batch, struct zink_surface *surface);
 
 void
 debug_describe_zink_batch_state(char *buf, const struct zink_batch_state *ptr);

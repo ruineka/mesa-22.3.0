@@ -48,81 +48,6 @@ ir3_glsl_type_size(const struct glsl_type *type, bool bindless)
    return glsl_count_attribute_slots(type, false);
 }
 
-/* for vertex shader, the inputs are loaded into registers before the shader
- * is executed, so max_regs from the shader instructions might not properly
- * reflect the # of registers actually used, especially in case passthrough
- * varyings.
- *
- * Likewise, for fragment shader, we can have some regs which are passed
- * input values but never touched by the resulting shader (ie. as result
- * of dead code elimination or simply because we don't know how to turn
- * the reg off.
- */
-static void
-fixup_regfootprint(struct ir3_shader_variant *v)
-{
-   unsigned i;
-
-   for (i = 0; i < v->inputs_count; i++) {
-      /* skip frag inputs fetch via bary.f since their reg's are
-       * not written by gpu before shader starts (and in fact the
-       * regid's might not even be valid)
-       */
-      if (v->inputs[i].bary)
-         continue;
-
-      /* ignore high regs that are global to all threads in a warp
-       * (they exist by default) (a5xx+)
-       */
-      if (v->inputs[i].regid >= regid(48, 0))
-         continue;
-
-      if (v->inputs[i].compmask) {
-         unsigned n = util_last_bit(v->inputs[i].compmask) - 1;
-         int32_t regid = v->inputs[i].regid + n;
-         if (v->inputs[i].half) {
-            if (!v->mergedregs) {
-               v->info.max_half_reg = MAX2(v->info.max_half_reg, regid >> 2);
-            } else {
-               v->info.max_reg = MAX2(v->info.max_reg, regid >> 3);
-            }
-         } else {
-            v->info.max_reg = MAX2(v->info.max_reg, regid >> 2);
-         }
-      }
-   }
-
-   for (i = 0; i < v->outputs_count; i++) {
-      /* for ex, VS shaders with tess don't have normal varying outs: */
-      if (!VALIDREG(v->outputs[i].regid))
-         continue;
-      int32_t regid = v->outputs[i].regid + 3;
-      if (v->outputs[i].half) {
-         if (!v->mergedregs) {
-            v->info.max_half_reg = MAX2(v->info.max_half_reg, regid >> 2);
-         } else {
-            v->info.max_reg = MAX2(v->info.max_reg, regid >> 3);
-         }
-      } else {
-         v->info.max_reg = MAX2(v->info.max_reg, regid >> 2);
-      }
-   }
-
-   for (i = 0; i < v->num_sampler_prefetch; i++) {
-      unsigned n = util_last_bit(v->sampler_prefetch[i].wrmask) - 1;
-      int32_t regid = v->sampler_prefetch[i].dst + n;
-      if (v->sampler_prefetch[i].half_precision) {
-         if (!v->mergedregs) {
-            v->info.max_half_reg = MAX2(v->info.max_half_reg, regid >> 2);
-         } else {
-            v->info.max_reg = MAX2(v->info.max_reg, regid >> 3);
-         }
-      } else {
-         v->info.max_reg = MAX2(v->info.max_reg, regid >> 2);
-      }
-   }
-}
-
 /* wrapper for ir3_assemble() which does some info fixup based on
  * shader state.  Non-static since used by ir3_cmdline too.
  */
@@ -186,8 +111,6 @@ ir3_shader_assemble(struct ir3_shader_variant *v)
                         ((v->type == MESA_SHADER_COMPUTE) ||
                          (v->type == MESA_SHADER_KERNEL));
 
-   fixup_regfootprint(v);
-
    return bin;
 }
 
@@ -229,11 +152,11 @@ try_override_shader_variant(struct ir3_shader_variant *v,
 }
 
 static void
-assemble_variant(struct ir3_shader_variant *v)
+assemble_variant(struct ir3_shader_variant *v, bool internal)
 {
    v->bin = ir3_shader_assemble(v);
 
-   bool dbg_enabled = shader_debug_enabled(v->type);
+   bool dbg_enabled = shader_debug_enabled(v->type, internal);
    if (dbg_enabled || ir3_shader_override_path || v->disasm_info.write_disasm) {
       unsigned char sha1[21];
       char sha1buf[41];
@@ -297,7 +220,7 @@ compile_variant(struct ir3_shader *shader, struct ir3_shader_variant *v)
       return false;
    }
 
-   assemble_variant(v);
+   assemble_variant(v, shader->nir->info.internal);
    if (!v->bin) {
       mesa_loge("assemble failed! (%s:%s)", shader->nir->info.name,
                 shader->nir->info.label);
@@ -544,11 +467,11 @@ ir3_setup_used_key(struct ir3_shader *shader)
       }
 
       /* Only used for deciding on behavior of
-       * nir_intrinsic_load_barycentric_sample, or the centroid demotion
+       * nir_intrinsic_load_barycentric_sample and the centroid demotion
        * on older HW.
        */
-      key->msaa = info->fs.uses_sample_qualifier ||
-                  (shader->compiler->gen < 6 &&
+      key->msaa = shader->compiler->gen < 6 &&
+                  (info->fs.uses_sample_qualifier ||
                    (BITSET_TEST(info->system_values_read,
                                 SYSTEM_VALUE_BARYCENTRIC_PERSP_CENTROID) ||
                     BITSET_TEST(info->system_values_read,
@@ -615,16 +538,18 @@ ir3_trim_constlen(struct ir3_shader_variant **variants,
 {
    unsigned constlens[MESA_SHADER_STAGES] = {};
 
+   bool shared_consts_enable = false;
+
    for (unsigned i = 0; i < MESA_SHADER_STAGES; i++) {
-      if (variants[i])
+      if (variants[i]) {
          constlens[i] = variants[i]->constlen;
+         shared_consts_enable =
+            ir3_const_state(variants[i])->shared_consts_enable;
+      }
    }
 
    uint32_t trimmed = 0;
    STATIC_ASSERT(MESA_SHADER_STAGES <= 8 * sizeof(trimmed));
-
-   bool shared_consts_enable =
-      ir3_const_state(variants[MESA_SHADER_VERTEX])->shared_consts_enable;
 
    /* Use a hw quirk for geometry shared consts, not matched with actual
     * shared consts size (on a6xx).

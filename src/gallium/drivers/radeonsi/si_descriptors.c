@@ -947,7 +947,7 @@ void si_update_ps_colorbuf0_slot(struct si_context *sctx)
    struct pipe_surface *surf = NULL;
 
    /* si_texture_disable_dcc can get us here again. */
-   if (sctx->in_update_ps_colorbuf0_slot) {
+   if (sctx->in_update_ps_colorbuf0_slot || sctx->blitter_running) {
       assert(!sctx->ps_uses_fbfetch || sctx->framebuffer.state.cbufs[0]);
       return;
    }
@@ -1471,7 +1471,7 @@ void si_set_ring_buffer(struct si_context *sctx, uint slot, struct pipe_resource
 
       switch (element_size) {
       default:
-         assert(!"Unsupported ring buffer element size");
+         unreachable("Unsupported ring buffer element size");
       case 0:
       case 2:
          element_size = 0;
@@ -1489,7 +1489,7 @@ void si_set_ring_buffer(struct si_context *sctx, uint slot, struct pipe_resource
 
       switch (index_stride) {
       default:
-         assert(!"Unsupported ring buffer index stride");
+         unreachable("Unsupported ring buffer index stride");
       case 0:
       case 8:
          index_stride = 0;

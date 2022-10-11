@@ -992,7 +992,7 @@ split_pred(struct ir3_sched_ctx *ctx)
             /* original pred is scheduled, but new one isn't: */
             new_pred->flags &= ~IR3_INSTR_MARK;
          }
-         predicated->srcs[0]->instr = new_pred;
+         predicated->srcs[0]->def->instr = new_pred;
          /* don't need to remove old dag edge since old pred is
           * already scheduled:
           */
@@ -1154,12 +1154,22 @@ sched_dag_max_delay_cb(struct dag_node *node, void *state)
 }
 
 static void
+sched_dag_validate_cb(const struct dag_node *node, void *data)
+{
+   struct ir3_sched_node *n = (struct ir3_sched_node *)node;
+
+   ir3_print_instr(n->instr);
+}
+
+static void
 sched_dag_init(struct ir3_sched_ctx *ctx)
 {
    ctx->dag = dag_create(ctx);
 
    foreach_instr (instr, &ctx->unscheduled_list)
       sched_node_init(ctx, instr);
+
+   dag_validate(ctx->dag, sched_dag_validate_cb, NULL);
 
    foreach_instr (instr, &ctx->unscheduled_list)
       sched_node_add_deps(instr);

@@ -66,7 +66,7 @@ char *
 zink_shader_finalize(struct pipe_screen *pscreen, void *nirptr);
 
 void
-zink_shader_free(struct zink_context *ctx, struct zink_shader *shader);
+zink_shader_free(struct zink_screen *screen, struct zink_shader *shader);
 
 VkShaderModule
 zink_shader_tcs_compile(struct zink_screen *screen, struct zink_shader *zs, unsigned patch_vertices);
@@ -80,4 +80,6 @@ zink_shader_descriptor_is_buffer(struct zink_shader *zs, enum zink_descriptor_ty
           zs->bindings[type][i].type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
 }
 
+bool
+zink_shader_has_cubes(nir_shader *nir);
 #endif

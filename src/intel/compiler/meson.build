@@ -65,6 +65,7 @@ libintel_compiler_files = files(
   'brw_fs_saturate_propagation.cpp',
   'brw_fs_scoreboard.cpp',
   'brw_fs_sel_peephole.cpp',
+  'brw_fs_thread_payload.cpp',
   'brw_fs_validate.cpp',
   'brw_fs_visitor.cpp',
   'brw_inst.h',
@@ -139,7 +140,6 @@ libintel_compiler_files = files(
   'brw_vec4_vs_visitor.cpp',
   'brw_vec4_vs.h',
   'brw_vue_map.c',
-  'brw_wm_iz.cpp',
   'gfx6_gs_visitor.cpp',
   'gfx6_gs_visitor.h',
 )
@@ -175,6 +175,7 @@ if with_intel_clc
     ],
     include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_intel],
     c_args : [pre_args, no_override_init_args],
+    link_args : [ld_args_build_id],
     dependencies : [idep_nir, idep_clc, idep_mesautil],
     native : true,
   )

@@ -102,6 +102,7 @@ files_mesa_util = files(
   'rounding.h',
   'set.c',
   'set.h',
+  'simple_mtx.c',
   'simple_mtx.h',
   'slab.c',
   'slab.h',
@@ -118,6 +119,8 @@ files_mesa_util = files(
   'timespec.h',
   'u_atomic.c',
   'u_atomic.h',
+  'u_call_once.c',
+  'u_call_once.h',
   'u_debug_describe.c',
   'u_debug_describe.h',
   'u_debug_refcnt.c',
@@ -232,8 +235,8 @@ endif
 
 if with_perfetto
   files_mesa_util += files(
-    'u_perfetto.cc',
-    'u_perfetto.h',
+    'perf/u_perfetto.cc',
+    'perf/u_perfetto.h',
   )
   deps_for_libmesa_util += dep_perfetto
 endif
@@ -349,6 +352,7 @@ if with_tests
     'tests/string_buffer_test.cpp',
     'tests/timespec_test.cpp',
     'tests/u_atomic_test.cpp',
+    'tests/u_call_once_test.cpp',
     'tests/u_debug_stack_test.cpp',
     'tests/u_printf_test.cpp',
     'tests/u_qsort_test.cpp',

@@ -1196,7 +1196,7 @@ static int insert_nop_r6xx(struct r600_bytecode *bc, int max_slots)
 }
 
 /* load AR register from gpr (bc->ar_reg) with MOVA_INT */
-static int load_ar_r6xx(struct r600_bytecode *bc)
+static int load_ar_r6xx(struct r600_bytecode *bc, bool for_src)
 {
 	struct r600_bytecode_alu alu;
 	int r;
@@ -1207,6 +1207,10 @@ static int load_ar_r6xx(struct r600_bytecode *bc)
 	/* hack to avoid making MOVA the last instruction in the clause */
 	if ((bc->cf_last->ndw>>1) >= 110)
 		bc->force_add_cf = 1;
+   else if (for_src) {
+      insert_nop_r6xx(bc, 4);
+      bc->nalu_groups++;
+   }
 
 	memset(&alu, 0, sizeof(alu));
 	alu.op = ALU_OP1_MOVA_GPR_INT;
@@ -1224,13 +1228,13 @@ static int load_ar_r6xx(struct r600_bytecode *bc)
 }
 
 /* load AR register from gpr (bc->ar_reg) with MOVA_INT */
-int r600_load_ar(struct r600_bytecode *bc)
+int r600_load_ar(struct r600_bytecode *bc, bool for_src)
 {
 	struct r600_bytecode_alu alu;
 	int r;
 
 	if (bc->ar_handling)
-		return load_ar_r6xx(bc);
+		return load_ar_r6xx(bc, for_src);
 
 	if (bc->ar_loaded)
 		return 0;
@@ -1306,10 +1310,10 @@ int r600_bytecode_add_alu_type(struct r600_bytecode *bc,
 	/* Check AR usage and load it if required */
 	for (i = 0; i < 3; i++)
 		if (nalu->src[i].rel && !bc->ar_loaded)
-			r600_load_ar(bc);
+			r600_load_ar(bc, true);
 
 	if (nalu->dst.rel && !bc->ar_loaded)
-		r600_load_ar(bc);
+		r600_load_ar(bc, false);
 
 	/* Setup the kcache for this ALU instruction. This will start a new
 	 * ALU clause if needed. */
@@ -2270,8 +2274,14 @@ void r600_bytecode_disasm(struct r600_bytecode *bc)
 				fprintf(stderr, "\n");
 			} else if (r600_isa_cf(cf->op)->flags & CF_MEM) {
 				int o = 0;
-				const char *exp_type[] = {"WRITE", "WRITE_IND", "WRITE_ACK",
-						"WRITE_IND_ACK"};
+				const char *exp_type_r600[] = {"WRITE", "WRITE_IND", "READ",
+				                               "READ_IND"};
+				const char *exp_type_r700[] = {"WRITE", "WRITE_IND", "WRITE_ACK",
+				                               "WRITE_IND_ACK"};
+
+				const char **exp_type = bc->gfx_level >= R700 ?
+                                       exp_type_r700 : exp_type_r600;
+
 				o += fprintf(stderr, "%04d %08X %08X  %s ", id,
 						bc->bytecode[id], bc->bytecode[id + 1], cfop->name);
 				o += print_indent(o, 43);
@@ -2345,6 +2355,7 @@ void r600_bytecode_disasm(struct r600_bytecode *bc)
 		nliteral = 0;
 		last = 1;
 		LIST_FOR_EACH_ENTRY(alu, &cf->alu, list) {
+			const char chan[] = "xyzwt";
 			const char *omod_str[] = {"","*2","*4","/2"};
 			const struct alu_op_info *aop = r600_isa_alu(alu->op);
 			int o = 0;
@@ -2355,6 +2366,7 @@ void r600_bytecode_disasm(struct r600_bytecode *bc)
 				o += fprintf(stderr, "%4d ", ++ngr);
 			else
 				o += fprintf(stderr, "     ");
+			o += fprintf(stderr, "%c:", chan[alu->dst.chan]);
 			o += fprintf(stderr, "%c%c %c ", alu->execute_mask ? 'M':' ',
 					alu->update_pred ? 'P':' ',
 					alu->pred_sel ? alu->pred_sel==2 ? '0':'1':' ');
@@ -2723,8 +2735,7 @@ void *r600_create_vertex_fetch_shader(struct pipe_context *ctx,
 	uint32_t *bytecode;
 	int i, j, r, fs_size;
 	struct r600_fetch_shader *shader;
-	unsigned no_sb = rctx->screen->b.debug_flags & DBG_NO_SB ||
-                         (rctx->screen->b.debug_flags & DBG_NIR);
+	unsigned no_sb = rctx->screen->b.debug_flags & (DBG_NO_SB | DBG_NIR);
 	unsigned sb_disasm = !no_sb || (rctx->screen->b.debug_flags & DBG_SB_DISASM);
 
 	assert(count < 32);

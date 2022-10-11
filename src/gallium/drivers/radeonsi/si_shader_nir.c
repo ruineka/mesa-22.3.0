@@ -48,8 +48,15 @@ static uint8_t si_vectorize_callback(const nir_instr *instr, const void *data)
       return 0;
 
    nir_alu_instr *alu = nir_instr_as_alu(instr);
-   if (nir_dest_bit_size(alu->dest.dest) == 16)
-      return 2;
+   if (nir_dest_bit_size(alu->dest.dest) == 16) {
+      switch (alu->op) {
+      case nir_op_unpack_32_2x16_split_x:
+      case nir_op_unpack_32_2x16_split_y:
+         return 1;
+      default:
+         return 2;
+      }
+   }
 
    return 1;
 }
@@ -251,6 +258,7 @@ static void si_lower_nir(struct si_screen *sscreen, struct nir_shader *nir)
       .lower_txp = ~0u,
       .lower_txs_cube_array = true,
       .lower_invalid_implicit_lod = true,
+      .lower_tg4_offsets = true,
    };
    NIR_PASS_V(nir, nir_lower_tex, &lower_tex_options);
 
@@ -349,6 +357,21 @@ char *si_finalize_nir(struct pipe_screen *screen, void *nirptr)
 
    if (sscreen->options.inline_uniforms)
       nir_find_inlinable_uniforms(nir);
+
+   /* Lower large variables that are always constant with load_constant intrinsics, which
+    * get turned into PC-relative loads from a data section next to the shader.
+    *
+    * Run this once before lcssa because the added phis may prevent this
+    * pass from operating correctly.
+    *
+    * nir_opt_large_constants may use op_amul (see nir_build_deref_offset),
+    * or may create unneeded code, so run si_nir_opts if needed.
+    */
+   NIR_PASS_V(nir, nir_remove_dead_variables, nir_var_function_temp, NULL);
+   bool progress = false;
+   NIR_PASS(progress, nir, nir_opt_large_constants, glsl_get_natural_size_align_bytes, 16);
+   if (progress)
+      si_nir_opts(sscreen, nir, false);
 
    NIR_PASS_V(nir, nir_convert_to_lcssa, true, true); /* required by divergence analysis */
    NIR_PASS_V(nir, nir_divergence_analysis); /* to find divergent loops */
